@@ -215,8 +215,9 @@ int main(int argc, char **argv) {
 					"-u, --unlink-after\n"
 					"\tTry to unlink all sockets when done.\n"
 					"-m, --max-queue <bytes>\n"
-					"\tMaximum about of data to buffer for connected readers (approximate)\n"
-					"\tAccepts suffixes: k, M, G. Default: 64k\n"
+					"\tMaximum amount of data to buffer for each connected socket reader (approximate)\n"
+					"\tAccepts suffixes: k, M, G, for multiples of 1024. Default: 64k\n"
+					"\tAbove this limit new data for that socket reader will be discarded.\n"
 					"Note:\n"
 					"\tNo attempt is made to line-buffer or coalesce the input.\n"
 			);
