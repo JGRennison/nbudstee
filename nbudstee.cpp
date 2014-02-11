@@ -59,6 +59,8 @@ bool remove_after = false;
 std::vector<struct pollfd> pollfds;
 std::deque<struct fdinfo> fdinfos;
 
+const size_t buffer_count_shrink_threshold = 4;
+
 void addpollfd(int fd, short events, FDTYPE type, std::string name) {
 	if(fdinfos.size() <= (size_t) fd) fdinfos.resize(fd + 1);
 	if(fdinfos[fd].type != FDTYPE::NONE) {
@@ -152,6 +154,11 @@ std::shared_ptr<std::vector<unsigned char> > read_input_fd(int fd) {
 			if(fdinfos[fd].type == FDTYPE::CONN) {
 				if(fdinfos[fd].buffered_data < max_queue) {
 					fdinfos[fd].out_buffers.emplace_back(buffer);
+					if(fdinfos[fd].out_buffers.size() >= buffer_count_shrink_threshold) {
+						//Starting to accumulate a lot of buffers
+						//Shrink to fit the older ones to avoid storing large numbers of potentially mostly empty buffers
+						fdinfos[fd].out_buffers[fdinfos[fd].out_buffers.size() - buffer_count_shrink_threshold]->shrink_to_fit();
+					}
 					fdinfos[fd].buffered_data += buffer->size();
 					setpollfdevents(fd, POLLOUT | POLLERR);
 				}
