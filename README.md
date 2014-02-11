@@ -12,6 +12,8 @@ Where uds1 uds2 ... are zero or more filenames to use as Unix domain sockets.
 ### Options:
 * -n, --no-stdout  
   Do not copy input to STDOUT.  
+* -b, --unlink-before  
+  First try to unlink any existing sockets. This will not try to unlink non-sockets.  
 * -u, --unlink-after  
   Try to unlink all sockets when done.  
 * -m, --max-queue <bytes>  

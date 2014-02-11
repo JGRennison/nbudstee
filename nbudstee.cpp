@@ -27,6 +27,7 @@
 #include <signal.h>
 #include <sys/socket.h>
 #include <sys/un.h>
+#include <sys/stat.h>
 
 #include <vector>
 #include <memory>
@@ -56,6 +57,7 @@ bool force_exit = false;
 bool use_stdout = true;
 size_t max_queue = 65536;
 bool remove_after = false;
+bool remove_before = false;
 std::vector<struct pollfd> pollfds;
 std::deque<struct fdinfo> fdinfos;
 
@@ -180,6 +182,7 @@ static struct option options[] = {
 	{ "help",          no_argument,        NULL, 'h' },
 	{ "no-stdout",     no_argument,        NULL, 'n' },
 	{ "unlink-after",  no_argument,        NULL, 'u' },
+	{ "unlink-before", no_argument,        NULL, 'b' },
 	{ "max-queue",     required_argument,  NULL, 'm' },
 	{ NULL, 0, 0, 0 }
 };
@@ -187,7 +190,7 @@ static struct option options[] = {
 int main(int argc, char **argv) {
 	int n = 0;
 	while (n >= 0) {
-		n = getopt_long(argc, argv, "hnum:", options, NULL);
+		n = getopt_long(argc, argv, "hnubm:", options, NULL);
 		if (n < 0) continue;
 		switch (n) {
 		case 'n':
@@ -195,6 +198,9 @@ int main(int argc, char **argv) {
 			break;
 		case 'u':
 			remove_after = true;
+			break;
+		case 'b':
+			remove_before = true;
 			break;
 		case 'm': {
 			char *end = 0;
@@ -219,6 +225,8 @@ int main(int argc, char **argv) {
 					"Options:\n"
 					"-n, --no-stdout\n"
 					"\tDo not copy input to STDOUT.\n"
+					"-b, --unlink-before\n"
+					"\tFirst try to unlink any existing sockets. This will not try to unlink non-sockets.\n"
 					"-u, --unlink-after\n"
 					"\tTry to unlink all sockets when done.\n"
 					"-m, --max-queue <bytes>\n"
@@ -260,6 +268,16 @@ int main(int argc, char **argv) {
 			exit(1);
 		}
 		strncpy(my_addr.sun_path, name, maxlen);
+
+		if(remove_before) {
+			struct stat sb;
+			if(stat(name, &sb) != -1) {
+				if(S_ISSOCK(sb.st_mode)) {
+					//only try to unlink if the existing file is a socket
+					unlink(name);
+				}
+			}
+		}
 
 		if(bind(sock, (struct sockaddr *) &my_addr, sizeof(my_addr)) == -1) {
 			fprintf(stderr, "bind(%s) failed, %m\n", name);
