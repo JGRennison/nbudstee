@@ -37,7 +37,7 @@
 
 enum class FDTYPE {
 	NONE,
-	STDIN,
+	INPUT,
 	LISTENER,
 	CONN,
 };
@@ -61,6 +61,10 @@ bool remove_after = false;
 bool remove_before = false;
 std::vector<struct pollfd> pollfds;
 std::deque<struct fdinfo> fdinfos;
+
+int input_fd = STDIN_FILENO;
+const char *input_name = "STDIN";
+bool reopen_input = false;
 
 const size_t buffer_count_shrink_threshold = 4;
 
@@ -138,7 +142,16 @@ void cleanup() {
 	}
 }
 
-std::shared_ptr<std::vector<unsigned char> > read_input_fd(int fd) {
+void open_named_input() {
+	input_fd = open(input_name, O_NONBLOCK | O_RDONLY);
+	if(input_fd == -1) {
+		fprintf(stderr, "Failed to open '%s' for input, %m. Exiting.\n", input_name);
+		cleanup();
+		exit(1);
+	}
+}
+
+std::shared_ptr<std::vector<unsigned char> > read_input_fd(int fd, bool &continue_flag) {
 	std::shared_ptr<std::vector<unsigned char> > buffer = getbuffer();
 	buffer->resize(4096);
 	ssize_t bread = read(fd, buffer->data(), buffer->size());
@@ -148,8 +161,19 @@ std::shared_ptr<std::vector<unsigned char> > read_input_fd(int fd) {
 		exit(1);
 	}
 	else if(bread == 0) {
-		cleanup();
-		exit(0);
+		if(reopen_input && fd == input_fd) {
+			close(fd);
+			delpollfd(fd);
+			open_named_input();
+			setnonblock(input_fd, input_name);
+			addpollfd(input_fd, POLLIN | POLLERR, FDTYPE::INPUT, input_name);
+			continue_flag = false;
+			return std::shared_ptr<std::vector<unsigned char> >();
+		}
+		else {
+			cleanup();
+			exit(0);
+		}
 	}
 	else if(bread > 0) {
 		buffer->resize(bread);
@@ -185,13 +209,15 @@ static struct option options[] = {
 	{ "unlink-after",  no_argument,        NULL, 'u' },
 	{ "unlink-before", no_argument,        NULL, 'b' },
 	{ "max-queue",     required_argument,  NULL, 'm' },
+	{ "input",         required_argument,  NULL, 'i' },
+	{ "input-reopen",  required_argument,  NULL, 'I' },
 	{ NULL, 0, 0, 0 }
 };
 
 int main(int argc, char **argv) {
 	int n = 0;
 	while (n >= 0) {
-		n = getopt_long(argc, argv, "hnubm:", options, NULL);
+		n = getopt_long(argc, argv, "hnubm:i:I:", options, NULL);
 		if (n < 0) continue;
 		switch (n) {
 		case 'n':
@@ -216,12 +242,20 @@ int main(int argc, char **argv) {
 			}
 			break;
 		}
+		case 'I':
+			reopen_input = true;
+			//fall through
+		case 'i':
+			input_name = optarg;
+			open_named_input();
+			break;
 		case '?':
 		case 'h':
 			fprintf(stderr,
 					"Usage: nbudstee [options] uds1 uds2 ...\n"
-					"\tCopy STDIN to zero or more non-blocking Unix domain sockets\n"
+					"\tCopy Input to zero or more non-blocking Unix domain sockets\n"
 					"\teach of which can have zero or more connected readers.\n"
+					"\tInput defaults to STDIN.\n"
 					"\tAlso copies to STDOUT, unless -n/--no-stdout is used.\n"
 					"Options:\n"
 					"-n, --no-stdout\n"
@@ -234,6 +268,12 @@ int main(int argc, char **argv) {
 					"\tMaximum amount of data to buffer for each connected socket reader (approximate)\n"
 					"\tAccepts suffixes: k, M, G, for multiples of 1024. Default: 64k\n"
 					"\tAbove this limit new data for that socket reader will be discarded.\n"
+					"-i, --input <file>\n"
+					"\tRead from <file> instead of STDIN.\n"
+					"-I, --input-reopen <file>\n"
+					"\tRead from <file> instead of STDIN.\n"
+					"\tWhen the end of input is reached, reopen from the beginning.\n"
+					"\tThis is primarily intended for FIFOs.\n"
 					"Note:\n"
 					"\tNo attempt is made to line-buffer or coalesce the input.\n"
 			);
@@ -250,8 +290,8 @@ int main(int argc, char **argv) {
 	new_action.sa_handler = SIG_IGN;
 	sigaction(SIGPIPE, &new_action, 0);
 
-	setnonblock(STDIN_FILENO, "STDIN");
-	addpollfd(STDIN_FILENO, POLLIN | POLLERR, FDTYPE::STDIN, "STDIN");
+	setnonblock(input_fd, input_name);
+	addpollfd(input_fd, POLLIN | POLLERR, FDTYPE::INPUT, input_name);
 
 	while (optind < argc) {
 		const char *name = argv[optind++];
@@ -306,8 +346,9 @@ int main(int argc, char **argv) {
 			switch(fdinfos[fd].type) {
 				case FDTYPE::NONE:
 					exit(2);
-				case FDTYPE::STDIN: {
-					auto buffer = read_input_fd(fd);
+				case FDTYPE::INPUT: {
+					auto buffer = read_input_fd(fd, continue_flag);
+					if(!buffer) break;
 					if(use_stdout) {
 						ssize_t result = write(STDOUT_FILENO, buffer->data(), buffer->size());
 						if(result < (ssize_t) buffer->size()) {

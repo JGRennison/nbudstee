@@ -1,7 +1,8 @@
 ## nbudstee: Non-Blocking Unix Domain Socket Tee
 
-**Tees STDIN to zero or more non-blocking Unix domain sockets, each of which can have zero or more connected readers.**  
-**Also copies to STDOUT, unless -n/--no-stdout is used.**
+**Tees Input to zero or more non-blocking Unix domain sockets, each of which can have zero or more connected readers.**  
+**Also copies to STDOUT, unless -n/--no-stdout is used.**  
+**Input defaults to STDIN**  
 
 ### Usage:
 
@@ -16,11 +17,17 @@ Where uds1 uds2 ... are zero or more filenames to use as Unix domain sockets.
   First try to unlink any existing sockets. This will not try to unlink non-sockets.  
 * -u, --unlink-after  
   Try to unlink all sockets when done.  
-* -m, --max-queue <bytes>  
+* -m, --max-queue bytes  
   Maximum amount of data to buffer for each connected reader (approximate).  
   Accepts suffixes: k, M, G, for kilobytes, megabytes, gigabytes (multiples of 1024).  
   Default: 64k.  
-  Above this limit new data for that socket reader will be discarded.
+  Above this limit new data for that socket reader will be discarded.  
+* -i, --input file  
+  Read from file instead of STDIN.  
+* -I, --input-reopen file  
+  Read from file instead of STDIN.  
+  When the end of input is reached, reopen from the beginning.  
+  This is primarily intended for FIFOs.  
 
 ### Use Case:
 On demand logging, in particular in shell pipelines.
