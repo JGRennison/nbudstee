@@ -298,7 +298,9 @@ int main(int argc, char **argv) {
 		int n = poll(pollfds.data(), pollfds.size(), -1);
 		if(n < 0) break;
 
-		for(size_t i = 0; i < pollfds.size(); i++) {
+		bool continue_flag = true;
+
+		for(size_t i = 0; i < pollfds.size() && continue_flag; i++) {
 			if(!pollfds[i].revents) continue;
 			int fd = pollfds[i].fd;
 			switch(fdinfos[fd].type) {
@@ -330,7 +332,16 @@ int main(int argc, char **argv) {
 				}
 				case FDTYPE::CONN: {
 					auto &out_buffers = fdinfos[fd].out_buffers;
-					if(out_buffers.empty()) continue;
+					if(!(pollfds[i].revents & POLLOUT)) {
+						close(fd);
+						delpollfd(fd);
+						continue_flag = false;
+						break;
+					}
+					if(out_buffers.empty()) {
+						pollfds[i].events = POLLERR;
+						continue;
+					}
 					auto buffer = std::move(out_buffers.front());
 					out_buffers.pop_front();
 					fdinfos[fd].buffered_data -= buffer->size();
@@ -341,6 +352,7 @@ int main(int argc, char **argv) {
 						}
 						close(fd);
 						delpollfd(fd);
+						continue_flag = false;
 					}
 					finished_with_buffer(std::move(buffer));
 					break;
