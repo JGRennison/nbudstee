@@ -35,6 +35,12 @@
 #include <deque>
 #include <string>
 
+#ifndef VERSION_STRING
+#define VERSION_STRING __DATE__ " " __TIME__
+#endif
+const char version_string[] = "nbudstee " VERSION_STRING;
+const char authors[] = "Written by Jonathan G. Rennison <j.g.rennison@gmail.com>";
+
 enum class FDTYPE {
 	NONE,
 	INPUT,
@@ -211,13 +217,14 @@ static struct option options[] = {
 	{ "max-queue",     required_argument,  NULL, 'm' },
 	{ "input",         required_argument,  NULL, 'i' },
 	{ "input-reopen",  required_argument,  NULL, 'I' },
+	{ "version",       no_argument,        NULL, 'V' },
 	{ NULL, 0, 0, 0 }
 };
 
 int main(int argc, char **argv) {
 	int n = 0;
 	while (n >= 0) {
-		n = getopt_long(argc, argv, "hnubm:i:I:", options, NULL);
+		n = getopt_long(argc, argv, "hnubm:i:I:V", options, NULL);
 		if (n < 0) continue;
 		switch (n) {
 		case 'n':
@@ -249,14 +256,18 @@ int main(int argc, char **argv) {
 			input_name = optarg;
 			open_named_input();
 			break;
+		case 'V':
+			fprintf(stdout, "%s\n\n%s\n", version_string, authors);
+			exit(0);
 		case '?':
 		case 'h':
-			fprintf(stderr,
-					"Usage: nbudstee [options] uds1 uds2 ...\n"
+			fprintf(n == '?' ? stderr : stdout,
+					"Usage: nbudstee [options] [uds ...]\n"
 					"\tCopy Input to zero or more non-blocking Unix domain sockets\n"
 					"\teach of which can have zero or more connected readers.\n"
 					"\tInput defaults to STDIN.\n"
-					"\tAlso copies to STDOUT, unless -n/--no-stdout is used.\n"
+					"\tAlso copies to STDOUT, unless -n, --no-stdout is used.\n"
+					"\tNo attempt is made to line-buffer or coalesce the input.\n"
 					"Options:\n"
 					"-n, --no-stdout\n"
 					"\tDo not copy input to STDOUT.\n"
@@ -264,20 +275,22 @@ int main(int argc, char **argv) {
 					"\tFirst try to unlink any existing sockets. This will not try to unlink non-sockets.\n"
 					"-u, --unlink-after\n"
 					"\tTry to unlink all sockets when done.\n"
-					"-m, --max-queue <bytes>\n"
-					"\tMaximum amount of data to buffer for each connected socket reader (approximate)\n"
-					"\tAccepts suffixes: k, M, G, for multiples of 1024. Default: 64k\n"
+					"-m, --max-queue bytes\n"
+					"\tMaximum amount of data to buffer for each connected socket reader (approximate).\n"
+					"\tAccepts suffixes: k, M, G, for multiples of 1024. Default: 64k.\n"
 					"\tAbove this limit new data for that socket reader will be discarded.\n"
-					"-i, --input <file>\n"
-					"\tRead from <file> instead of STDIN.\n"
-					"-I, --input-reopen <file>\n"
-					"\tRead from <file> instead of STDIN.\n"
+					"-i, --input file\n"
+					"\tRead from file instead of STDIN.\n"
+					"-I, --input-reopen file\n"
+					"\tRead from file instead of STDIN.\n"
 					"\tWhen the end of input is reached, reopen from the beginning.\n"
 					"\tThis is primarily intended for FIFOs.\n"
-					"Note:\n"
-					"\tNo attempt is made to line-buffer or coalesce the input.\n"
+					"-h, --help\n"
+					"\tShow this help\n"
+					"-V, --version\n"
+					"\tShow version information\n"
 			);
-			exit(1);
+			exit(n == '?' ? 1 : 0);
 		}
 	}
 
