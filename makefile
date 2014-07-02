@@ -14,7 +14,7 @@ clean:
 	rm -f nbudstee nbudstee.1
 
 install: nbudstee
-	install -m 755 nbudstee /usr/local/bin/
+	install -D -m 755 nbudstee /usr/local/bin/nbudstee
 
 
 HELP2MANOK := $(shell help2man --version 2>/dev/null)
@@ -29,7 +29,7 @@ install: install-man
 .PHONY: install-man
 
 install-man: nbudstee.1
-	install -m 644 nbudstee.1 /usr/local/share/man/man1/
+	install -D -m 644 nbudstee.1 /usr/local/share/man/man1/nbudstee.1
 	-mandb -pq
 else
 $(shell echo "Install help2man for man page generation" >&2)
