@@ -16,6 +16,9 @@ clean:
 install: nbudstee
 	install -D -m 755 nbudstee /usr/local/bin/nbudstee
 
+uninstall:
+	rm -f /usr/local/bin/nbudstee /usr/local/share/man/man1/nbudstee.1
+
 
 HELP2MANOK := $(shell help2man --version 2>/dev/null)
 ifdef HELP2MANOK
