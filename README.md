@@ -49,5 +49,9 @@ A possible command to read from a Unix domain socket is:
 * Writes to STDOUT are blocking.
 
 
+### URLs:
+* This project is hosted at https://github.com/JGRennison/nbudstee
+* A Ubuntu PPA is currently available at https://launchpad.net/~j-g-rennison/+archive/nbudstee
+
 ### License:
 GPLv2

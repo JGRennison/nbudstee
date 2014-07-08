@@ -1,0 +1,22 @@
+Source: nbudstee
+Maintainer: Jonathan G Rennison <j.g.rennison@gmail.com>
+Section: utils
+Priority: optional
+Standards-Version: 3.9.5
+Homepage: https://launchpad.net/~j-g-rennison/+archive/nbudstee
+Vcs-Browser: https://github.com/JGRennison/nbudstee
+Vcs-Git: https://github.com/JGRennison/nbudstee.git
+Build-Depends: debhelper (>= 9), help2man
+
+Package: nbudstee
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: Non-blocking Unix domain socket tee
+ Tees Input to zero or more non-blocking Unix domain sockets, each of which
+ can have zero or more connected readers.
+ Use Case: On demand logging, in particular in shell pipelines.
+ Any number of readers can read from each socket, on demand, without blocking
+ the main pipeline, or requiring data to be dumped to a file.
+ This is useful for occasional debugging/sampling, or for
+ inserting/removing tees without interrupting the main pipeline.
+ Note: No attempt is made to line-buffer or coalesce the input.

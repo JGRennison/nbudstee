@@ -1,24 +1,28 @@
+prefix ?= /usr/local
+
 all: nbudstee
 
-VERSION_STRING := $(shell git describe --always --dirty=-m 2>/dev/null || date "+%F %T %z" 2>/dev/null)
+VERSION_STRING := $(shell cat version 2>/dev/null || git describe --tags --always --dirty=-m 2>/dev/null || date "+%F %T %z" 2>/dev/null)
 ifdef VERSION_STRING
 CVFLAGS := -DVERSION_STRING='"${VERSION_STRING}"'
 endif
 
 nbudstee: nbudstee.cpp
-	g++ nbudstee.cpp -Wall --std=gnu++0x -O3 -g -o nbudstee ${CVFLAGS}
+	g++ nbudstee.cpp -Wall --std=c++11 -O3 -g -o nbudstee $(CVFLAGS)
 
-.PHONY: all install clean
+.PHONY: all install uninstall clean dumpversion
+
+dumpversion:
+	@echo $(VERSION_STRING)
 
 clean:
 	rm -f nbudstee nbudstee.1
 
 install: nbudstee
-	install -D -m 755 nbudstee /usr/local/bin/nbudstee
+	install -D -m 755 nbudstee $(DESTDIR)$(prefix)/bin/nbudstee
 
 uninstall:
-	rm -f /usr/local/bin/nbudstee /usr/local/share/man/man1/nbudstee.1
-
+	rm -f $(DESTDIR)$(prefix)/bin/nbudstee $(DESTDIR)$(prefix)/share/man/man1/nbudstee.1
 
 HELP2MANOK := $(shell help2man --version 2>/dev/null)
 ifdef HELP2MANOK
@@ -32,8 +36,9 @@ install: install-man
 .PHONY: install-man
 
 install-man: nbudstee.1
-	install -D -m 644 nbudstee.1 /usr/local/share/man/man1/nbudstee.1
+	install -D -m 644 nbudstee.1 $(DESTDIR)$(prefix)/share/man/man1/nbudstee.1
 	-mandb -pq
+
 else
 $(shell echo "Install help2man for man page generation" >&2)
 endif

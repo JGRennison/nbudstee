@@ -1,0 +1,6 @@
+*
+!/debian/
+!/debian/*
+!/debian/source/*
+!/makedeb.sh
+!/.gitignore
