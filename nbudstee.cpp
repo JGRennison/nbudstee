@@ -48,11 +48,16 @@ enum class FDTYPE {
 	CONN,
 };
 
+struct fd_out_buffer {
+	std::shared_ptr<std::vector<unsigned char> > buffer;
+	size_t offset;
+};
+
 struct fdinfo {
 	FDTYPE type = FDTYPE::NONE;
 	unsigned int pollfd_offset;
 	std::string name;
-	std::deque<std::shared_ptr<std::vector<unsigned char> > > out_buffers;
+	std::deque<fd_out_buffer> out_buffers;
 	size_t buffered_data = 0;
 	bool have_overflowed = false;
 	void clear() {
@@ -160,13 +165,23 @@ void open_named_input() {
 std::shared_ptr<std::vector<unsigned char> > read_input_fd(int fd, bool &continue_flag) {
 	std::shared_ptr<std::vector<unsigned char> > buffer = getbuffer();
 	buffer->resize(4096);
-	ssize_t bread = read(fd, buffer->data(), buffer->size());
-	if(bread < 0) {
-		fprintf(stderr, "empty/failed read: %m\n");
-		cleanup();
-		exit(1);
+
+	ssize_t bread = 0;
+	while(!force_exit) {
+		bread = read(fd, buffer->data(), buffer->size());
+		if(bread < 0) {
+			if(errno == EINTR) {
+				bread = 0;
+				continue;
+			}
+			fprintf(stderr, "Failed to read from STDIN: %m\n");
+			cleanup();
+			exit(1);
+		}
+		break;
 	}
-	else if(bread == 0) {
+
+	if(bread == 0) {
 		if(reopen_input && fd == input_fd) {
 			close(fd);
 			delpollfd(fd);
@@ -186,11 +201,11 @@ std::shared_ptr<std::vector<unsigned char> > read_input_fd(int fd, bool &continu
 		for(int fd = 0; fd < (int) fdinfos.size(); fd++) {
 			if(fdinfos[fd].type == FDTYPE::CONN) {
 				if(fdinfos[fd].buffered_data < max_queue) {
-					fdinfos[fd].out_buffers.emplace_back(buffer);
+					fdinfos[fd].out_buffers.push_back({ buffer, 0 });
 					if(fdinfos[fd].out_buffers.size() >= buffer_count_shrink_threshold) {
 						//Starting to accumulate a lot of buffers
 						//Shrink to fit the older ones to avoid storing large numbers of potentially mostly empty buffers
-						fdinfos[fd].out_buffers[fdinfos[fd].out_buffers.size() - buffer_count_shrink_threshold]->shrink_to_fit();
+						fdinfos[fd].out_buffers[fdinfos[fd].out_buffers.size() - buffer_count_shrink_threshold].buffer->shrink_to_fit();
 					}
 					fdinfos[fd].buffered_data += buffer->size();
 					setpollfdevents(fd, POLLOUT | POLLERR);
@@ -349,7 +364,10 @@ int main(int argc, char **argv) {
 
 	while(!force_exit) {
 		int n = poll(pollfds.data(), pollfds.size(), -1);
-		if(n < 0) break;
+		if(n < 0) {
+			if(errno == EINTR) continue;
+			else break;
+		}
 
 		bool continue_flag = true;
 
@@ -363,11 +381,16 @@ int main(int argc, char **argv) {
 					auto buffer = read_input_fd(fd, continue_flag);
 					if(!buffer) break;
 					if(use_stdout) {
-						ssize_t result = write(STDOUT_FILENO, buffer->data(), buffer->size());
-						if(result < (ssize_t) buffer->size()) {
-							fprintf(stderr, "Write to STDOUT failed/incomplete, wrote %zd instead of %zu, %m. Exiting.\n", result, buffer->size());
-							cleanup();
-							exit(1);
+						size_t offset = 0;
+						while(buffer->size() > offset && !force_exit) {
+							ssize_t result = write(STDOUT_FILENO, buffer->data() + offset, buffer->size() - offset);
+							if(result < 0) {
+								if(errno == EINTR) continue;
+								fprintf(stderr, "Write to STDOUT failed, %m. Exiting.\n");
+								cleanup();
+								exit(1);
+							}
+							offset += result;
 						}
 					}
 					finished_with_buffer(std::move(buffer));
@@ -396,20 +419,30 @@ int main(int argc, char **argv) {
 						pollfds[i].events = POLLERR;
 						continue;
 					}
-					auto buffer = std::move(out_buffers.front());
+					auto buffer_item = std::move(out_buffers.front());
 					out_buffers.pop_front();
-					fdinfos[fd].buffered_data -= buffer->size();
-					ssize_t result = write(fd, buffer->data(), buffer->size());
-					if(result < (ssize_t) buffer->size()) {
-						if(errno != EPIPE) {
-							fprintf(stderr, "Write to %s failed/incomplete, wrote %zd instead of %zu, %m. Closing.\n", fdinfos[fd].name.c_str(), result, buffer->size());
+					while(buffer_item.buffer->size() > buffer_item.offset) {
+						ssize_t result = write(fd, buffer_item.buffer->data() + buffer_item.offset, buffer_item.buffer->size() - buffer_item.offset);
+						if(result < 0) {
+							if(errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) {
+								// try again later
+								out_buffers.emplace_front(std::move(buffer_item));
+								goto outerbreak;
+							}
+
+							if(errno != EPIPE) {
+								fprintf(stderr, "Write to %s failed, %m. Closing.\n", fdinfos[fd].name.c_str());
+							}
+							close(fd);
+							delpollfd(fd);
+							continue_flag = false;
+							break;
 						}
-						close(fd);
-						delpollfd(fd);
-						continue_flag = false;
+						buffer_item.offset += result;
+						fdinfos[fd].buffered_data -= result;
 					}
-					finished_with_buffer(std::move(buffer));
-					break;
+					finished_with_buffer(std::move(buffer_item.buffer));
+					outerbreak: break;
 				}
 			}
 		}
