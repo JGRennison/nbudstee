@@ -7,8 +7,13 @@ ifdef VERSION_STRING
 CVFLAGS := -DVERSION_STRING='"${VERSION_STRING}"'
 endif
 
+CXXFLAGS ?= -Wall -Wextra -Wno-unused-parameter -O3 -g
+LDFLAGS ?=
+CPPFLAGS += -D_FILE_OFFSET_BITS=64
+CXXFLAGS += -std=c++11
+
 nbudstee: nbudstee.cpp
-	g++ nbudstee.cpp -Wall --std=c++11 -O3 -g -o nbudstee $(CVFLAGS)
+	g++ nbudstee.cpp $(CPPFLAGS) $(CXXFLAGS) $(LDFLAGS) $(CVFLAGS) $(AFLAGS) -o nbudstee $(LOADLIBES) $(LDLIBS)
 
 .PHONY: all install uninstall clean dumpversion
 
