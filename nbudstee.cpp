@@ -46,6 +46,7 @@ enum class FDTYPE {
 	INPUT,
 	LISTENER,
 	CONN,
+	FIFO,
 };
 
 struct fd_out_buffer {
@@ -149,6 +150,9 @@ void cleanup() {
 			if(it.type == FDTYPE::LISTENER) {
 				unlink(it.name.c_str());
 			}
+			else if(it.type == FDTYPE::FIFO) {
+				unlink(it.name.c_str());
+			}
 		}
 	}
 }
@@ -199,7 +203,7 @@ std::shared_ptr<std::vector<unsigned char> > read_input_fd(int fd, bool &continu
 	else if(bread > 0) {
 		buffer->resize(bread);
 		for(int fd = 0; fd < (int) fdinfos.size(); fd++) {
-			if(fdinfos[fd].type == FDTYPE::CONN) {
+			if(fdinfos[fd].type == FDTYPE::CONN || fdinfos[fd].type == FDTYPE::FIFO) {
 				if(fdinfos[fd].buffered_data < max_queue) {
 					fdinfos[fd].out_buffers.push_back({ buffer, 0 });
 					if(fdinfos[fd].out_buffers.size() >= buffer_count_shrink_threshold) {
@@ -279,7 +283,8 @@ int main(int argc, char **argv) {
 			fprintf(n == '?' ? stderr : stdout,
 					"Usage: nbudstee [options] [uds ...]\n"
 					"\tCopy Input to zero or more non-blocking Unix domain sockets\n"
-					"\teach of which can have zero or more connected readers.\n"
+					"\teach of which can have zero or more connected readers, and/or to zero or more\n"
+					"\texisting FIFOs, each of which can have exactly one existing reader.\n"
 					"\tInput defaults to STDIN.\n"
 					"\tAlso copies to STDOUT, unless -n, --no-stdout is used.\n"
 					"\tNo attempt is made to line-buffer or coalesce the input.\n"
@@ -289,7 +294,7 @@ int main(int argc, char **argv) {
 					"-b, --unlink-before\n"
 					"\tFirst try to unlink any existing sockets. This will not try to unlink non-sockets.\n"
 					"-u, --unlink-after\n"
-					"\tTry to unlink all sockets when done.\n"
+					"\tTry to unlink all sockets and FIFOs when done.\n"
 					"-m, --max-queue bytes\n"
 					"\tMaximum amount of data to buffer for each connected socket reader (approximate).\n"
 					"\tAccepts suffixes: k, M, G, for multiples of 1024. Default: 64k.\n"
@@ -323,43 +328,54 @@ int main(int argc, char **argv) {
 
 	while (optind < argc) {
 		const char *name = argv[optind++];
-		int sock = socket(AF_UNIX, SOCK_STREAM, 0);
-		if(sock == -1) {
-			fprintf(stderr, "socket() failed, %m\n");
-			continue;
-		}
-		struct sockaddr_un my_addr;
-		memset(&my_addr, 0, sizeof(my_addr));
-		my_addr.sun_family = AF_UNIX;
-		size_t maxlen = sizeof(my_addr.sun_path) - 1;
-		if(strlen(name) > maxlen) {
-			fprintf(stderr, "Socket name: %s too long, maximum: %zu\n", name, maxlen);
-			exit(1);
-		}
-		strncpy(my_addr.sun_path, name, maxlen);
 
-		if(remove_before) {
-			struct stat sb;
-			if(stat(name, &sb) != -1) {
-				if(S_ISSOCK(sb.st_mode)) {
-					//only try to unlink if the existing file is a socket
-					unlink(name);
+		struct stat sf;
+		int stat_result = stat(name, &sf);
+		if((stat_result != -1) && (S_ISFIFO(sf.st_mode))) {
+			int fd = open(name, O_NONBLOCK | O_WRONLY | O_APPEND);
+			if(fd == -1) {
+				fprintf(stderr, "FIFO: %s cannot be opened, %m\n", name);
+				continue;
+			}
+			addpollfd(fd, POLLERR, FDTYPE::FIFO, name);
+		} else {
+			int sock = socket(AF_UNIX, SOCK_STREAM, 0);
+			if(sock == -1) {
+				fprintf(stderr, "socket() failed, %m\n");
+				continue;
+			}
+			struct sockaddr_un my_addr;
+			memset(&my_addr, 0, sizeof(my_addr));
+			my_addr.sun_family = AF_UNIX;
+			size_t maxlen = sizeof(my_addr.sun_path) - 1;
+			if(strlen(name) > maxlen) {
+				fprintf(stderr, "Socket name: %s too long, maximum: %zu\n", name, maxlen);
+				exit(1);
+			}
+			strncpy(my_addr.sun_path, name, maxlen);
+
+			if(remove_before) {
+				if(stat_result != -1) {
+					if(S_ISSOCK(sf.st_mode)) {
+						//only try to unlink if the existing file is a socket
+						unlink(name);
+					}
 				}
 			}
-		}
 
-		if(bind(sock, (struct sockaddr *) &my_addr, sizeof(my_addr)) == -1) {
-			fprintf(stderr, "bind(%s) failed, %m\n", name);
-			continue;
-		}
+			if(bind(sock, (struct sockaddr *) &my_addr, sizeof(my_addr)) == -1) {
+				fprintf(stderr, "bind(%s) failed, %m\n", name);
+				continue;
+			}
 
-		if(listen(sock, 64) == -1) {
-			fprintf(stderr, "listen(%s) failed, %m\n", name);
-			continue;
-		}
+			if(listen(sock, 64) == -1) {
+				fprintf(stderr, "listen(%s) failed, %m\n", name);
+				continue;
+			}
 
-		setnonblock(sock, name);
-		addpollfd(sock, POLLIN | POLLERR, FDTYPE::LISTENER, name);
+			setnonblock(sock, name);
+			addpollfd(sock, POLLIN | POLLERR, FDTYPE::LISTENER, name);
+		}
 	}
 
 	while(!force_exit) {
@@ -407,7 +423,8 @@ int main(int argc, char **argv) {
 					addpollfd(newsock, POLLERR, FDTYPE::CONN, fdinfos[fd].name);
 					break;
 				}
-				case FDTYPE::CONN: {
+				case FDTYPE::CONN:
+				case FDTYPE::FIFO: {
 					auto &out_buffers = fdinfos[fd].out_buffers;
 					if(!(pollfds[i].revents & POLLOUT)) {
 						close(fd);
