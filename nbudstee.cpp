@@ -323,43 +323,54 @@ int main(int argc, char **argv) {
 
 	while (optind < argc) {
 		const char *name = argv[optind++];
-		int sock = socket(AF_UNIX, SOCK_STREAM, 0);
-		if(sock == -1) {
-			fprintf(stderr, "socket() failed, %m\n");
-			continue;
-		}
-		struct sockaddr_un my_addr;
-		memset(&my_addr, 0, sizeof(my_addr));
-		my_addr.sun_family = AF_UNIX;
-		size_t maxlen = sizeof(my_addr.sun_path) - 1;
-		if(strlen(name) > maxlen) {
-			fprintf(stderr, "Socket name: %s too long, maximum: %zu\n", name, maxlen);
-			exit(1);
-		}
-		strncpy(my_addr.sun_path, name, maxlen);
 
-		if(remove_before) {
-			struct stat sb;
-			if(stat(name, &sb) != -1) {
-				if(S_ISSOCK(sb.st_mode)) {
-					//only try to unlink if the existing file is a socket
-					unlink(name);
+		struct stat sf;
+		if((stat(name, &sf) != -1) && (!S_ISSOCK(sf.st_mode))) {
+			int fd = open(name, O_NONBLOCK | O_WRONLY | O_APPEND);
+			if(fd == -1) {
+				fprintf(stderr, "File name: %s cannot be opened\n", name);
+				exit(1);
+			}
+			addpollfd(fd, POLLERR, FDTYPE::CONN, name);
+		} else {
+			int sock = socket(AF_UNIX, SOCK_STREAM, 0);
+			if(sock == -1) {
+				fprintf(stderr, "socket() failed, %m\n");
+				continue;
+			}
+			struct sockaddr_un my_addr;
+			memset(&my_addr, 0, sizeof(my_addr));
+			my_addr.sun_family = AF_UNIX;
+			size_t maxlen = sizeof(my_addr.sun_path) - 1;
+			if(strlen(name) > maxlen) {
+				fprintf(stderr, "Socket name: %s too long, maximum: %zu\n", name, maxlen);
+				exit(1);
+			}
+			strncpy(my_addr.sun_path, name, maxlen);
+
+			if(remove_before) {
+				struct stat sb;
+				if(stat(name, &sb) != -1) {
+					if(S_ISSOCK(sb.st_mode)) {
+						//only try to unlink if the existing file is a socket
+						unlink(name);
+					}
 				}
 			}
-		}
 
-		if(bind(sock, (struct sockaddr *) &my_addr, sizeof(my_addr)) == -1) {
-			fprintf(stderr, "bind(%s) failed, %m\n", name);
-			continue;
-		}
+			if(bind(sock, (struct sockaddr *) &my_addr, sizeof(my_addr)) == -1) {
+				fprintf(stderr, "bind(%s) failed, %m\n", name);
+				continue;
+			}
 
-		if(listen(sock, 64) == -1) {
-			fprintf(stderr, "listen(%s) failed, %m\n", name);
-			continue;
-		}
+			if(listen(sock, 64) == -1) {
+				fprintf(stderr, "listen(%s) failed, %m\n", name);
+				continue;
+			}
 
-		setnonblock(sock, name);
-		addpollfd(sock, POLLIN | POLLERR, FDTYPE::LISTENER, name);
+			setnonblock(sock, name);
+			addpollfd(sock, POLLIN | POLLERR, FDTYPE::LISTENER, name);
+		}
 	}
 
 	while(!force_exit) {
