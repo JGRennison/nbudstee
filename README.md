@@ -1,6 +1,7 @@
 ## nbudstee: Non-Blocking Unix Domain Socket Tee
 
-**Tees Input to zero or more non-blocking Unix domain sockets, each of which can have zero or more connected readers.**  
+**Tees Input to zero or more non-blocking Unix domain sockets, each of which can have zero or more connected readers,**  
+**and/or to zero or more existing FIFOs, each of which can have exactly one existing reader.**  
 **Also copies to STDOUT, unless -n/--no-stdout is used.**  
 **Input defaults to STDIN**  
 
@@ -8,7 +9,7 @@
 
     nbudstee [options] uds1 uds2 ...
 
-Where uds1 uds2 ... are zero or more filenames to use as Unix domain sockets.
+Where uds1 uds2 ... are zero or more filenames to use as Unix domain sockets, or existing FIFOs.
 
 ### Options:
 * -n, --no-stdout  
@@ -16,7 +17,7 @@ Where uds1 uds2 ... are zero or more filenames to use as Unix domain sockets.
 * -b, --unlink-before  
   First try to unlink any existing sockets. This will not try to unlink non-sockets.  
 * -u, --unlink-after  
-  Try to unlink all sockets when done.  
+  Try to unlink all sockets and FIFOs when done.  
 * -m, --max-queue bytes  
   Maximum amount of data to buffer for each connected reader (approximate).  
   Accepts suffixes: k, M, G, for kilobytes, megabytes, gigabytes (multiples of 1024).  

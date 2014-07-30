@@ -46,6 +46,7 @@ enum class FDTYPE {
 	INPUT,
 	LISTENER,
 	CONN,
+	FIFO,
 };
 
 struct fd_out_buffer {
@@ -149,6 +150,9 @@ void cleanup() {
 			if(it.type == FDTYPE::LISTENER) {
 				unlink(it.name.c_str());
 			}
+			else if(it.type == FDTYPE::FIFO) {
+				unlink(it.name.c_str());
+			}
 		}
 	}
 }
@@ -199,7 +203,7 @@ std::shared_ptr<std::vector<unsigned char> > read_input_fd(int fd, bool &continu
 	else if(bread > 0) {
 		buffer->resize(bread);
 		for(int fd = 0; fd < (int) fdinfos.size(); fd++) {
-			if(fdinfos[fd].type == FDTYPE::CONN) {
+			if(fdinfos[fd].type == FDTYPE::CONN || fdinfos[fd].type == FDTYPE::FIFO) {
 				if(fdinfos[fd].buffered_data < max_queue) {
 					fdinfos[fd].out_buffers.push_back({ buffer, 0 });
 					if(fdinfos[fd].out_buffers.size() >= buffer_count_shrink_threshold) {
@@ -279,7 +283,8 @@ int main(int argc, char **argv) {
 			fprintf(n == '?' ? stderr : stdout,
 					"Usage: nbudstee [options] [uds ...]\n"
 					"\tCopy Input to zero or more non-blocking Unix domain sockets\n"
-					"\teach of which can have zero or more connected readers.\n"
+					"\teach of which can have zero or more connected readers, and/or to zero or more\n"
+					"\texisting FIFOs, each of which can have exactly one existing reader.\n"
 					"\tInput defaults to STDIN.\n"
 					"\tAlso copies to STDOUT, unless -n, --no-stdout is used.\n"
 					"\tNo attempt is made to line-buffer or coalesce the input.\n"
@@ -289,7 +294,7 @@ int main(int argc, char **argv) {
 					"-b, --unlink-before\n"
 					"\tFirst try to unlink any existing sockets. This will not try to unlink non-sockets.\n"
 					"-u, --unlink-after\n"
-					"\tTry to unlink all sockets when done.\n"
+					"\tTry to unlink all sockets and FIFOs when done.\n"
 					"-m, --max-queue bytes\n"
 					"\tMaximum amount of data to buffer for each connected socket reader (approximate).\n"
 					"\tAccepts suffixes: k, M, G, for multiples of 1024. Default: 64k.\n"
@@ -325,13 +330,14 @@ int main(int argc, char **argv) {
 		const char *name = argv[optind++];
 
 		struct stat sf;
-		if((stat(name, &sf) != -1) && (!S_ISSOCK(sf.st_mode))) {
+		int stat_result = stat(name, &sf);
+		if((stat_result != -1) && (S_ISFIFO(sf.st_mode))) {
 			int fd = open(name, O_NONBLOCK | O_WRONLY | O_APPEND);
 			if(fd == -1) {
-				fprintf(stderr, "File name: %s cannot be opened\n", name);
-				exit(1);
+				fprintf(stderr, "FIFO: %s cannot be opened, %m\n", name);
+				continue;
 			}
-			addpollfd(fd, POLLERR, FDTYPE::CONN, name);
+			addpollfd(fd, POLLERR, FDTYPE::FIFO, name);
 		} else {
 			int sock = socket(AF_UNIX, SOCK_STREAM, 0);
 			if(sock == -1) {
@@ -349,9 +355,8 @@ int main(int argc, char **argv) {
 			strncpy(my_addr.sun_path, name, maxlen);
 
 			if(remove_before) {
-				struct stat sb;
-				if(stat(name, &sb) != -1) {
-					if(S_ISSOCK(sb.st_mode)) {
+				if(stat_result != -1) {
+					if(S_ISSOCK(sf.st_mode)) {
 						//only try to unlink if the existing file is a socket
 						unlink(name);
 					}
@@ -418,7 +423,8 @@ int main(int argc, char **argv) {
 					addpollfd(newsock, POLLERR, FDTYPE::CONN, fdinfos[fd].name);
 					break;
 				}
-				case FDTYPE::CONN: {
+				case FDTYPE::CONN:
+				case FDTYPE::FIFO: {
 					auto &out_buffers = fdinfos[fd].out_buffers;
 					if(!(pollfds[i].revents & POLLOUT)) {
 						close(fd);
