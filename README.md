@@ -22,7 +22,9 @@ Where uds1 uds2 ... are zero or more filenames to use as Unix domain sockets, or
   Maximum amount of data to buffer for each connected reader (approximate).  
   Accepts suffixes: k, M, G, for kilobytes, megabytes, gigabytes (multiples of 1024).  
   Default: 64k.  
-  Above this limit new data for that socket reader will be discarded.  
+  Above this limit new data for that socket reader will be discarded (unless -d/--no-overflow is used).  
+* -d, --no-overflow  
+  Disconnect readers which would otherwise have data discarded because their buffer is full.  
 * -i, --input file  
   Read from file instead of STDIN.  
 * -I, --input-reopen file  

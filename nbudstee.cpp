@@ -71,6 +71,7 @@ bool use_stdout = true;
 size_t max_queue = 65536;
 bool remove_after = false;
 bool remove_before = false;
+bool no_overflow = false;
 std::vector<struct pollfd> pollfds;
 std::deque<struct fdinfo> fdinfos;
 
@@ -201,6 +202,8 @@ std::shared_ptr<std::vector<unsigned char> > read_input_fd(int fd, bool &continu
 		}
 	}
 	else if(bread > 0) {
+		std::vector<int> pending_close_fds;
+
 		buffer->resize(bread);
 		for(int fd = 0; fd < (int) fdinfos.size(); fd++) {
 			if(fdinfos[fd].type == FDTYPE::CONN || fdinfos[fd].type == FDTYPE::FIFO) {
@@ -216,8 +219,23 @@ std::shared_ptr<std::vector<unsigned char> > read_input_fd(int fd, bool &continu
 				}
 				else if(!fdinfos[fd].have_overflowed) {
 					fdinfos[fd].have_overflowed = true;
-					fprintf(stderr, "Queue overflow for output: %s\n", fdinfos[fd].name.c_str());
+					if(no_overflow) {
+						// Don't close here as we are currently iterating over the list of fds
+						pending_close_fds.push_back(fd);
+						fprintf(stderr, "Queue overflow for output: %s, closing connection\n", fdinfos[fd].name.c_str());
+					}
+					else {
+						fprintf(stderr, "Queue overflow for output: %s\n", fdinfos[fd].name.c_str());
+					}
 				}
+			}
+		}
+
+		if(pending_close_fds.size()) {
+			continue_flag = false;
+			for(auto &fd : pending_close_fds) {
+				close(fd);
+				delpollfd(fd);
 			}
 		}
 	}
@@ -237,13 +255,14 @@ static struct option options[] = {
 	{ "input",         required_argument,  NULL, 'i' },
 	{ "input-reopen",  required_argument,  NULL, 'I' },
 	{ "version",       no_argument,        NULL, 'V' },
+	{ "no-overflow",   no_argument,        NULL, 'd' },
 	{ NULL, 0, 0, 0 }
 };
 
 int main(int argc, char **argv) {
 	int n = 0;
 	while (n >= 0) {
-		n = getopt_long(argc, argv, "hnubm:i:I:V", options, NULL);
+		n = getopt_long(argc, argv, "hnubm:i:I:Vd", options, NULL);
 		if (n < 0) continue;
 		switch (n) {
 		case 'n':
@@ -275,6 +294,9 @@ int main(int argc, char **argv) {
 			input_name = optarg;
 			open_named_input();
 			break;
+		case 'd':
+			no_overflow = true;
+			break;
 		case 'V':
 			fprintf(stdout, "%s\n\n%s\n", version_string, authors);
 			exit(0);
@@ -298,7 +320,11 @@ int main(int argc, char **argv) {
 					"-m, --max-queue bytes\n"
 					"\tMaximum amount of data to buffer for each connected socket reader (approximate).\n"
 					"\tAccepts suffixes: k, M, G, for multiples of 1024. Default: 64k.\n"
-					"\tAbove this limit new data for that socket reader will be discarded.\n"
+					"\tAbove this limit new data for that socket reader will be discarded,\n"
+					"\t(unless -d/--no-overflow is used).\n"
+					"-d, --no-overflow\n"
+					"\tDisconnect readers which would otherwise have data discarded because their\n"
+					"\tbuffer is full.\n"
 					"-i, --input file\n"
 					"\tRead from file instead of STDIN.\n"
 					"-I, --input-reopen file\n"
