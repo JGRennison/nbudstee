@@ -33,9 +33,8 @@ while getopts ":d:v:o:Snu:" opt; do
       ;;
     u)
       "$0" -S -d trusty -v -0~ppa"$OPTARG"~trusty1
-      "$0" -n -S -d saucy -v -0~ppa"$OPTARG"~saucy1
-      "$0" -n -S -d precise -v -0~ppa"$OPTARG"~precise1
       "$0" -n -S -d utopic -v -0~ppa"$OPTARG"~utopic1
+      "$0" -n -S -d vivid -v -0~ppa"$OPTARG"~vivid1
       exit 0
       ;;
     ?)
